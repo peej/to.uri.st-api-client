@@ -20,6 +20,9 @@ define('NS_GEORSS', 'http://www.georss.org/georss');
 define('NS_OPENSEARCH', 'http://a9.com/-/spec/opensearch/1.1/');
 define('NS_OPENSEARCH_GEO', 'http://a9.com/-/opensearch/extensions/geo/1.0/');
 
+if (!extension_loaded('curl')) die("CURL extension required\n");
+if (!extension_loaded('simplexml')) die("SimpleXML extension required\n");
+
 array_shift($argv);
 if (count($argv) == 0) {
     $url = new URL('http://to.uri.st/index.atom');
