@@ -32,19 +32,20 @@ if (count($argv) == 0) {
 
 list($code, $document, $headers) = $url->exec();
 
-$mimetype = explode(';', $headers['Content-Type']);
-processDocument($url, $mimetype[0], $document);
+processDocument($url, $headers, $document);
 
-function processDocument($url, $mimetype, $document) {
+function processDocument($url, $headers, $document) {
+    list($mimetype) = explode(';', $headers['Content-Type']);
+    echo "Found ".$mimetype."\n";
     switch($mimetype) {
     case 'application/atomserv+xml':
         $actions = parseIndexDocument($document, $url);
         break;
     case 'application/atom+xml':
         if (strpos($document, '<feed') !== FALSE) { // feed
-            $actions = parseAtomFeed($document, $url);
+            $actions = parseAtomFeed($document, $url, $headers);
         } elseif (strpos($document, '<entry') !== FALSE) { // entry
-            $actions = parseAtomEntry($document, $url);
+            $actions = parseAtomEntry($document, $url, $headers);
         }
         break;
     default:
@@ -61,10 +62,9 @@ function processDocument($url, $mimetype, $document) {
     $chosenUrl = $actions[$items[$choice - 1]];
     list($code, $document, $headers) = $chosenUrl->exec();
     if (substr($code, 0, 1) == '2') {
-        list($mimetype) = explode(';', $headers['Content-Type']);
-        echo "Success: ".$code." (".$mimetype.")\n";
+        echo "Success: ".$code."\n";
         if ($document) {
-            processDocument($chosenUrl, $mimetype, $document);
+            processDocument($chosenUrl, $headers, $document);
         }
     } else {
         echo "Error: ".$code."\n";
@@ -100,9 +100,9 @@ function parseIndexDocument($document, $url) {
     return $actions;
 }
 
-function parseAtomFeed($document, $url) {
+function parseAtomFeed($document, $url, $headers) {
     
-    echo "Found an Atom feed\n";
+    echo "It's an Atom feed\n";
     
     $xml = new SimpleXMLElement($document);
     $feedUrl = new URL($xml->link['href'], $url);
@@ -126,15 +126,18 @@ function parseAtomFeed($document, $url) {
             }
         }
     }
-    $actions['POST a new entry'] = new URL($url->url, $url, 'post');
+    
+    if (strpos($headers['Allow'], 'POST') !== FALSE) {
+        $actions['POST a new entry'] = new URL($url->url, $url, 'post', 'readEntryData');
+    }
     
     return $actions;
     
 }
 
-function parseAtomEntry($document, $url) {
+function parseAtomEntry($document, $url, $headers) {
     
-    echo "Found an Atom entry\n";
+    echo "It's an Atom entry\n";
     
     $xml = new SimpleXMLElement($document);
     foreach ($xml->link as $link) {
@@ -162,21 +165,44 @@ function parseAtomEntry($document, $url) {
     echo "Author: ".$xml->author->name."\n";
     echo "Link: ".$linkUrl->url."\n";
     
-    $actions = array(
-        'PUT' => new URL($entryUrl->url, $url, 'put'),
-        'DELETE' => new URL($entryUrl->url, $url, 'delete')
-    );
-    if ($historyUrl) $actions['History'] = new URL($historyUrl->url, $url, 'get');
+    $actions = array();
+    if (strpos($headers['Allow'], 'PUT') !== FALSE) {
+        $actions['PUT new version of this entry'] = new URL($entry->url, $url, 'put', 'readEntryData');
+    }
+    if (strpos($headers['Allow'], 'DELETE') !== FALSE) {
+        $actions['DELETE this entry'] = new URL($entry->url, $url, 'delete');
+    }
+    
+    if ($historyUrl) $actions['GET entry history'] = new URL($historyUrl->url, $url, 'get');
     
     return $actions;
 }
 
+function readEntryData() {
+    echo "Enter entry data to send:\n";
+    $atom = "<?xml version=\"1.0\" encoding=\"utf-8\"?>
+<entry xmlns=\"http://www.w3.org/2005/Atom\" xmlns:georss=\"http://www.georss.org/georss\">";
+    echo "Title: ";
+    $title = trim(fgets(STDIN));
+    if ($title) $atom .= "<title>".$title."</title>";
+    echo "Description: ";
+    $description = trim(fgets(STDIN));
+    if ($description) $atom .= "<content type=\"html\">".$description."</content>";
+    echo "Latitude: ";
+    $lat = trim(fgets(STDIN));
+    echo "Longitude: ";
+    $lng = trim(fgets(STDIN));
+    if (is_numeric($lat) && is_numeric($lng)) $atom .= "<georss:point>".$lat." ".$lng."</georss:point>";
+    return $atom."</entry>";
+}
+
 class URL {
-    var $url, $method;
+    var $url, $method, $dataFunc;
     
-    function url($url, $parentUrl = NULL, $method = 'get') {
+    function url($url, $parentUrl = NULL, $method = 'get', $dataFunc = NULL) {
         $this->url = $this->makeAbsoluteUrl($url, $parentUrl);
         $this->method = $method;
+        if (function_exists($dataFunc)) $this->dataFunc = $dataFunc;
     }
     
     function exec() {
@@ -196,13 +222,19 @@ class URL {
         case 'post':
             echo "POSTing to ".$this->url."\n";
             curl_setopt($curl, CURLOPT_POST, TRUE);
-            curl_setopt($curl, CURLOPT_POSTFIELDS, $this->readData());
+            if ($this->dataFunc) {
+                $dataFunc = $this->dataFunc;
+                curl_setopt($curl, CURLOPT_POSTFIELDS, $dataFunc());
+            }
             $headers[] = 'Content-Type: application/atom+xml';
             break;
         case 'put':
             echo "PUTting to ".$this->url."\n";
             curl_setopt($curl, CURLOPT_CUSTOMREQUEST, 'PUT');
-            curl_setopt($curl, CURLOPT_POSTFIELDS, $this->readData());
+            if ($this->dataFunc) {
+                $dataFunc = $this->dataFunc;
+                curl_setopt($curl, CURLOPT_POSTFIELDS, $dataFunc());
+            }
             $headers[] = 'Content-type: application/atom+xml';
             break;
         case 'delete':
@@ -300,23 +332,6 @@ class URL {
         return str_replace(' ', '%20', $url);
     }
     
-    function readData() {
-        echo "Enter entry data to send:\n";
-        $atom = "<?xml version=\"1.0\" encoding=\"utf-8\"?>
-<entry xmlns=\"http://www.w3.org/2005/Atom\" xmlns:georss=\"http://www.georss.org/georss\">";
-        echo "Title: ";
-        $title = trim(fgets(STDIN));
-        if ($title) $atom .= "<title>".$title."</title>";
-        echo "Description: ";
-        $description = trim(fgets(STDIN));
-        if ($description) $atom .= "<content type=\"html\">".$description."</content>";
-        echo "Latitude: ";
-        $lat = trim(fgets(STDIN));
-        echo "Longitude: ";
-        $lng = trim(fgets(STDIN));
-        if (is_numeric($lat) && is_numeric($lng)) $atom .= "<georss:point>".$lat." ".$lng."</georss:point>";
-        return $atom."</entry>";
-    }
 }
 
 ?>
