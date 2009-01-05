@@ -141,16 +141,8 @@ function parseAtomEntry($document, $url, $headers) {
     
     $xml = new SimpleXMLElement($document);
     foreach ($xml->link as $link) {
-        switch ($link['rel']) {
-        case 'self':
-            $entryUrl = new URL($link['href'], $url);
-            break;
-        case 'via':
+        if ($link['rel'] == 'via') {
             $linkUrl = new URL($link['href'], $url);
-            break;
-        case 'history':
-            $historyUrl = new URL($link['href'], $url);
-            break;
         }
     }
     $georssChildren = $xml->children(NS_GEORSS);
@@ -163,7 +155,7 @@ function parseAtomEntry($document, $url, $headers) {
     echo "Published: ".$xml->published."\n";
     echo "Updated: ".$xml->updated."\n";
     echo "Author: ".$xml->author->name."\n";
-    echo "Link: ".$linkUrl->url."\n";
+    if ($linkUrl) echo "Link: ".$linkUrl->url."\n";
     
     $actions = array();
     if (strpos($headers['Allow'], 'PUT') !== FALSE) {
@@ -173,7 +165,12 @@ function parseAtomEntry($document, $url, $headers) {
         $actions['DELETE this entry'] = new URL($entry->url, $url, 'delete');
     }
     
-    if ($historyUrl) $actions['GET entry history'] = new URL($historyUrl->url, $url, 'get');
+    foreach ($xml->link as $link) {
+        if ($link['type'] == 'application/atom+xml') {
+            $linkUrl = new URL($link['href'], $url);
+            $actions['GET entry "'.$link['rel'].'"'] = new URL($linkUrl->url, $url, 'get');
+        }
+    }
     
     return $actions;
 }
