@@ -148,7 +148,7 @@ function parseAtomEntry($document, $url, $headers) {
     $georssChildren = $xml->children(NS_GEORSS);
     
     echo "Entry ID: ".$xml->id."\n";
-    echo "Entry URL: ".$entryUrl->url."\n";
+    echo "Entry URL: ".$url->url."\n";
     echo "Title: ".$xml->title."\n";
     echo "Description: ".$xml->content."\n";
     echo "Point: ".$georssChildren->point."\n";
