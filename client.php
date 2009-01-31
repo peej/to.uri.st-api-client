@@ -32,7 +32,11 @@ if (count($argv) == 0) {
 
 list($code, $document, $headers) = $url->exec();
 
-processDocument($url, $headers, $document);
+if (substr($code, 0, 1) == '2' && $document) {
+    processDocument($url, $headers, $document);
+} else {
+    echo "Response: ".$code."\n";
+}
 
 function processDocument($url, $headers, $document) {
     list($mimetype) = explode(';', $headers['Content-Type']);
@@ -49,7 +53,8 @@ function processDocument($url, $headers, $document) {
         }
         break;
     default:
-        echo "Unknown format: ".mimetype."\n";
+        echo "Unknown format: ".$mimetype."\n";
+        echo substr($document, 0, 1000)."\n";
         exit;
     }
     if (!$actions) {
